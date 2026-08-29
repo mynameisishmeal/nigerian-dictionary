@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+  // directUrl is used by Prisma for migrations on Neon
+}
+
+model User {
+  id              String       @id @default(uuid())
+  name            String
+  email           String       @unique
+  emailVerified   Boolean      @default(false)
+  image           String?
+  ninHash         String?      @unique
+  firstName       String?
+  lastName        String?
+  username        String?      @unique
+  stateOfOrigin   String?
+  primaryLanguage String?
+  isOnboarded     Boolean      @default(false)
+  isVerified      Boolean      @default(false)
+  showEmailPublicly    Boolean   @default(false)
+  showStatePublicly    Boolean   @default(true)
+  showLanguagePublicly Boolean   @default(true)
+  showStatsPublicly    Boolean   @default(true)
+  role            String       @default("user")
+  reputationScore Int          @default(0)
+  encryptedOpenRouterKey String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  
+  definitions     Definition[]
+  votes           Vote[]
+  sessions        Session[]
+  accounts        Account[]
+
+  @@map("user")
+}
+
+model Word {
+  id             String       @id @default(uuid())
+  normalizedTerm String       @unique
+  displayTerm    String
+  aliases        String[]     @default([])
+  languageFamily String?
+  commonStates   String[]
+  createdAt      DateTime     @default(now())
+
+  definitions    Definition[]
+
+  @@map("word")
+}
+
+model Definition {
+  id        String   @id @default(uuid())
+  wordId    String
+  authorId  String
+  meaning   String
+  dialect   String?
+  example   String?
+  examples  String[] @default([])
+  netScore  Int      @default(0) // upvotes - downvotes
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  word      Word     @relation(fields: [wordId], references: [id])
+  author    User     @relation(fields: [authorId], references: [id])
+  votes     Vote[]
+
+  @@unique([wordId, meaning]) // Prevent identical meanings under the same word to allow vote merging
+  @@map("definition")
+}
+
+model Vote {
+  userId       String
+  definitionId String
+  voteType     Int // 1 for upvote, -1 for downvote
+
+  user       User       @relation(fields: [userId], references: [id])
+  definition Definition @relation(fields: [definitionId], references: [id])
+
+  @@id([userId, definitionId]) // Composite primary key ensures one vote per user per definition
+  @@map("vote")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(uuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verification")
+}

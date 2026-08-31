@@ -137,32 +137,39 @@ export async function POST(request: Request) {
     }
 
     prompt += `
-      A word in Nigeria can exist in multiple distinct languages/dialects (e.g. Yoruba, Nigerian Pidgin, Igbo, Hausa, Edo, Efik, Tiv, Slang) with different meanings and unique use cases.
+      A word in Nigeria can exist in authentic Nigerian languages (e.g. Yoruba, Igbo, Hausa, Edo, Efik, Tiv, Fulfulde, Kanuri, Ijaw, Urhobo, Itsekiri, Nupe, Igala, Ebira, Nigerian Pidgin, Urban Slang).
       
-      Provide up to 3 distinct linguistic senses/definitions of "${word}".
-      Crucially, identify any dialectal spelling variations across Nigerian languages (e.g. "Jápá" in Yoruba with tonal markings vs "Japa" in Nigerian Slang; "Ṣákárà" in Yoruba vs "Shakara" in Pidgin).
+      STRICT ETYMOLOGY AND AUTHENTICITY RULES:
+      1. DO NOT HALLUCINATE OR FABRICATE LANGUAGE ORIGINS. Only assign a dialect to a sense if the word "${word}" GENUINELY and AUTHENTICALLY exists in that specific language.
+      2. For example:
+         - "Kpele" / "Pẹlẹ" is strictly from Yoruba ("ẹ̀ pẹlẹ́" / "ò pẹlẹ́") and used in Nigerian Pidgin / Slang. It is NOT Igbo, Hausa, or Efik. In Igbo, sympathy is "Ndo". DO NOT claim "Kpele" is Igbo.
+         - "Biko" is strictly Igbo (meaning "please"). It is NOT Yoruba or Hausa.
+         - "Sannu" / "Ba wahala" is strictly Hausa / Pidgin.
+         - "Jápá" is strictly Yoruba / Slang.
+      3. If the word only exists in 1 or 2 languages (e.g. Yoruba and Nigerian Pidgin), return ONLY those 1 or 2 authentic senses. DO NOT invent 3 senses if the word does not exist in a 3rd language!
+      4. Crucially, identify any dialectal spelling variations across authentic Nigerian languages (e.g. "Pẹlẹ́" / "Kpele" in Yoruba/Pidgin, "Ṣákárà" in Yoruba vs "Shakara" in Pidgin).
       
-      For each sense, specify:
-      1. "dialect": The Nigerian language or dialect (e.g. "Yoruba", "Nigerian Pidgin", "Hausa", "Igbo", "Urban Slang").
-      2. "spelling": The exact orthographic spelling in that specific dialect (e.g. "Jápá" for Yoruba, "Japa" for Slang).
-      3. "meaning": Concise, accurate definition with cultural nuance.
-      4. "examples": An array of 2-3 authentic, conversational Nigerian example sentences illustrating that specific meaning in context.
+      For each authentic sense, specify:
+      1. "dialect": The authentic Nigerian language or dialect (e.g. "Yoruba", "Nigerian Pidgin", "Hausa", "Igbo", "Urban Slang").
+      2. "spelling": The exact orthographic spelling in that specific dialect (e.g. "Pẹlẹ́" for Yoruba, "Kpele" for Pidgin).
+      3. "meaning": Concise, culturally accurate definition.
+      4. "examples": An array of 2 authentic, natural Nigerian example sentences illustrating that specific meaning.
 
-      Also provide "aliases": An array of all recognized dialectal/orthographic spellings (e.g. ["Jápá", "Japa"]).
+      Also provide "aliases": An array of all recognized dialectal/orthographic spellings (e.g. ["Pẹlẹ́", "Kpele", "Pele"]).
 
       Respond strictly with a valid JSON object matching this schema (no markdown fences):
       {
-        "aliases": ["Jápá", "Japa"],
+        "aliases": ["Pẹlẹ́", "Kpele"],
         "senses": [
           {
-            "dialect": "Language or Dialect Name",
+            "dialect": "Authentic Language Name",
             "spelling": "Exact dialect spelling",
             "meaning": "Clear definition",
-            "examples": ["Authentic example sentence 1", "Authentic example sentence 2"]
+            "examples": ["Example 1", "Example 2"]
           }
         ],
-        "meanings": ["Flat meaning 1", "Flat meaning 2"],
-        "examples": ["Flat example 1", "Flat example 2"]
+        "meanings": ["Flat meaning 1"],
+        "examples": ["Flat example 1"]
       }
     `;
 

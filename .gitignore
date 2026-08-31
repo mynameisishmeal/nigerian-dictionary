@@ -1,6 +1,41 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ==========================================
+# Nigerian Dictionary .gitignore
+# ==========================================
 
-# dependencies
+# 1. Environment & Sensitive Secrets (CRITICAL)
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+*.env.*
+!.env.example
+
+# 2. Private Keys, Certificates & Tokens
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.token
+id_rsa
+id_rsa.pub
+
+# 3. Database Dumps & Local Database Files
+*.sql
+*.dump
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+prisma/*.db
+prisma/*.db-journal
+
+# 4. Dependencies
 /node_modules
 /.pnp
 .pnp.*
@@ -10,36 +45,51 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
-# next.js
+# 5. Build Artifacts & Caches
 /.next/
 /out/
+/build/
+/dist/
+/.turbo/
+/.vercel/
+.neon
+.neon/
+*.neon
+*.tsbuildinfo
+next-env.d.ts
 
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+# 6. Logs & Debugging
+logs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# 7. Operating System & Editor Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
 
-# vercel
-.vercel
+# 8. IDE & Editor Configs
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-.neon
-node_modules/
-dist/
-.env
+# 9. Scratch Scripts & Temporary Tests
+scripts/temp-*
+scripts/test-*
+/scratch/

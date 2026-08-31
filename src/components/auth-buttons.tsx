@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 export function AuthButtons() {
   const { data: session, isPending } = useSession();
   const [isOpen, setIsOpen] = useState(false);
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [verificationSent, setVerificationSent] = useState(false);
@@ -34,42 +35,73 @@ export function AuthButtons() {
     setLoading(true);
     setError("");
 
-    // Try signing up first
-    const { error: signUpError } = await signUp.email({ 
-      email, 
-      password, 
-      name: email.split("@")[0] 
-    });
+    try {
+      if (mode === 'signin') {
+        const res = await signIn.email({ email, password });
+        if (res?.error) {
+          setError(res.error.message || "Invalid credentials. Please try again.");
+        } else {
+          setIsOpen(false);
+          // Check if user has completed onboarding
+          try {
+            const obRes = await fetch('/api/user/onboarding');
+            if (obRes.ok) {
+              const obData = await obRes.json();
+              if (obData?.user?.isOnboarded) {
+                router.push("/dashboard");
+                router.refresh();
+                return;
+              }
+            }
+          } catch (e) {}
 
-    if (signUpError) {
-      // If user already exists, sign them in
-      const { error: signInError } = await signIn.email({ email, password });
-      if (signInError) {
-        setError(signInError.message || "Invalid credentials. Please try again.");
-      } else {
-        // Check if user has onboarded
-        setIsOpen(false);
-        router.push("/dashboard");
-      }
-    } else {
-      // Brand new signup: Dispatch single-use verification email
-      try {
-        const verifyRes = await fetch('/api/auth/send-verification', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
-        });
-        const verifyData = await verifyRes.json();
-        if (verifyData?.devLink) {
-          setDevVerificationLink(verifyData.devLink);
+          // For new or un-onboarded users, route directly to onboarding
+          router.push("/onboarding");
+          router.refresh();
         }
-      } catch (err) {
-        console.error('Failed to dispatch verification email:', err);
+      } else {
+        // Sign up mode
+        const res = await signUp.email({ 
+          email, 
+          password, 
+          name: email.split("@")[0] 
+        });
+
+        if (res?.error) {
+          if (res.error.message?.toLowerCase().includes("already exists")) {
+            setError("An account with this email already exists. Please switch to Sign In.");
+          } else {
+            setError(res.error.message || "Failed to create account.");
+          }
+          setLoading(false);
+          return;
+        }
+
+        // Dispatch single-use verification email
+        try {
+          const verifyRes = await fetch('/api/auth/send-verification', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email }),
+          });
+          const verifyData = await verifyRes.json();
+          if (verifyData?.devLink) {
+            setDevVerificationLink(verifyData.devLink);
+          }
+        } catch (err) {
+          console.error('Failed to dispatch verification email:', err);
+        }
+        setVerificationSent(true);
       }
-      setVerificationSent(true);
+    } catch (err: any) {
+      if (err.message?.toLowerCase().includes("already exists")) {
+        setError("An account with this email already exists. Please switch to Sign In.");
+      } else {
+        setError(err.message || "Authentication failed. Please check your details and try again.");
+      }
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   return (
@@ -116,19 +148,45 @@ export function AuthButtons() {
           <>
             <DialogHeader className="mb-2">
               <DialogTitle className="text-3xl font-black uppercase tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary text-center">
-                Join to Contribute
+                {mode === 'signin' ? 'Welcome Back' : 'Join to Contribute'}
               </DialogTitle>
             </DialogHeader>
+
+            {/* Mode Switcher Tabs */}
+            <div className="grid grid-cols-2 p-1 rounded-2xl bg-muted/30 border border-border/40 text-xs font-black uppercase tracking-wider">
+              <button
+                type="button"
+                onClick={() => { setMode('signin'); setError(''); }}
+                className={`py-2 rounded-xl transition-all ${
+                  mode === 'signin'
+                    ? 'bg-primary text-primary-foreground shadow-md'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('signup'); setError(''); }}
+                className={`py-2 rounded-xl transition-all ${
+                  mode === 'signup'
+                    ? 'bg-primary text-primary-foreground shadow-md'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Create Account
+              </button>
+            </div>
             
-            <div className="flex flex-col gap-6 py-4">
+            <div className="flex flex-col gap-5 py-2">
               <form onSubmit={handleEmailAuth} className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2.5">
                   <Input 
                     type="email" 
                     placeholder="Email Address" 
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="rounded-2xl border border-border/50 focus-visible:ring-2 focus-visible:ring-primary/50 font-bold text-lg h-14 bg-muted/20 backdrop-blur-sm px-6 shadow-inner transition-all hover:bg-muted/30"
+                    className="rounded-2xl border border-border/50 focus-visible:ring-2 focus-visible:ring-primary/50 font-bold text-base h-14 bg-muted/20 backdrop-blur-sm px-6 shadow-inner transition-all hover:bg-muted/30"
                     required
                   />
                   <Input 
@@ -136,27 +194,57 @@ export function AuthButtons() {
                     placeholder="Password" 
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="rounded-2xl border border-border/50 focus-visible:ring-2 focus-visible:ring-primary/50 font-bold text-lg h-14 bg-muted/20 backdrop-blur-sm px-6 shadow-inner transition-all hover:bg-muted/30"
+                    className="rounded-2xl border border-border/50 focus-visible:ring-2 focus-visible:ring-primary/50 font-bold text-base h-14 bg-muted/20 backdrop-blur-sm px-6 shadow-inner transition-all hover:bg-muted/30"
                     required
                   />
                 </div>
                 
-                {error && <div className="text-red-500 text-xs font-bold uppercase">{error}</div>}
+                {error && (
+                  <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs font-bold uppercase tracking-wider leading-relaxed">
+                    {error}
+                  </div>
+                )}
                 
                 <Button 
                   type="submit"
                   disabled={loading}
-                  className="rounded-2xl h-14 mt-2 font-black uppercase tracking-widest bg-gradient-to-r from-primary to-secondary text-primary-foreground transition-all hover:opacity-90 hover:scale-[1.02] active:scale-95 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)] shadow-primary/40"
+                  className="rounded-2xl h-14 mt-1 font-black uppercase tracking-widest bg-gradient-to-r from-primary to-secondary text-primary-foreground transition-all hover:opacity-90 hover:scale-[1.02] active:scale-95 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)] shadow-primary/40 text-xs"
                 >
-                  {loading ? "Please wait..." : "Continue with Email"}
+                  {loading ? "Please wait..." : mode === 'signin' ? "Sign In with Email" : "Create Account with Email"}
                 </Button>
               </form>
+
+              <div className="text-center text-xs font-medium text-muted-foreground">
+                {mode === 'signin' ? (
+                  <span>
+                    New to Nigerian Dictionary?{' '}
+                    <button
+                      type="button"
+                      onClick={() => { setMode('signup'); setError(''); }}
+                      className="font-bold text-primary hover:underline uppercase tracking-wider ml-1"
+                    >
+                      Create an account
+                    </button>
+                  </span>
+                ) : (
+                  <span>
+                    Already have an account?{' '}
+                    <button
+                      type="button"
+                      onClick={() => { setMode('signin'); setError(''); }}
+                      className="font-bold text-primary hover:underline uppercase tracking-wider ml-1"
+                    >
+                      Sign In here
+                    </button>
+                  </span>
+                )}
+              </div>
 
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t border-border/60" />
                 </div>
-                <div className="relative flex justify-center text-xs uppercase font-semibold tracking-wider">
+                <div className="relative flex justify-center text-[10px] uppercase font-black tracking-widest">
                   <span className="bg-card px-3 text-muted-foreground">Or</span>
                 </div>
               </div>
@@ -164,10 +252,10 @@ export function AuthButtons() {
               <Button 
                 type="button"
                 variant="outline"
-                className="rounded-2xl h-14 font-bold uppercase tracking-wider border border-border/50 bg-muted/10 text-foreground hover:bg-muted/30 flex items-center gap-3 transition-colors shadow-inner"
-                onClick={() => signIn.social({ provider: "google", callbackURL: "/dashboard" })}
+                className="rounded-2xl h-14 font-bold uppercase tracking-wider border border-border/50 bg-muted/10 text-foreground hover:bg-muted/30 flex items-center gap-3 transition-colors shadow-inner text-xs"
+                onClick={() => signIn.social({ provider: "google", callbackURL: "/onboarding" })}
               >
-                <FaGoogle className="w-5 h-5 text-primary" />
+                <FaGoogle className="w-4 h-4 text-primary" />
                 Continue with Google
               </Button>
             </div>

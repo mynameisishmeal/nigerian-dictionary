@@ -32,6 +32,8 @@ export async function POST(request: Request) {
           image: sessionData.user.image,
         },
       });
+    } else if (existingUser.role === 'banned') {
+      return NextResponse.json({ error: 'Your account has been banned from voting on contributions.' }, { status: 403 });
     }
 
     // Transaction to ensure atomic vote and score updates

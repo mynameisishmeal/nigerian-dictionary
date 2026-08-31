@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { auth } from '@/lib/auth-server';
+import { hashPassword } from '@/lib/password';
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,7 +10,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 });
     }
 
-    const { firstName, lastName, username, stateOfOrigin, primaryLanguage } = await req.json();
+    const { firstName, lastName, username, stateOfOrigin, primaryLanguage, password } = await req.json();
 
     if (!firstName || typeof firstName !== 'string' || !firstName.trim()) {
       return NextResponse.json({ error: 'First name is required.' }, { status: 400 });
@@ -29,6 +30,10 @@ export async function POST(req: NextRequest) {
 
     if (!primaryLanguage || typeof primaryLanguage !== 'string' || !primaryLanguage.trim()) {
       return NextResponse.json({ error: 'Primary heritage language is required.' }, { status: 400 });
+    }
+
+    if (password && typeof password === 'string' && password.trim().length > 0 && password.trim().length < 8) {
+      return NextResponse.json({ error: 'Password must be at least 8 characters long.' }, { status: 400 });
     }
 
     const cleanFirst = firstName.trim();
@@ -57,11 +62,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `@${cleanUsername} is already taken. Please choose another username.` }, { status: 400 });
     }
 
-    // Check if user exists in public.user
+    // Check if user exists in public.user and is not blacklisted
     const existingUsers: any[] = await prisma.$queryRawUnsafe(
-      `SELECT "id" FROM "user" WHERE "id" = $1 LIMIT 1`,
-      userId
+      `SELECT "id", "role" FROM "user" WHERE "id" = $1 OR LOWER("email") = LOWER($2) LIMIT 1`,
+      userId,
+      email || ''
     );
+
+    if (existingUsers[0]?.role === 'blacklisted') {
+      return NextResponse.json({ error: 'This account has been deactivated and blacklisted by administration.' }, { status: 403 });
+    }
 
     if (existingUsers.length === 0) {
       await prisma.$executeRawUnsafe(
@@ -109,6 +119,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // If a new password is provided, link or update credential account
+    if (password && typeof password === 'string' && password.trim().length >= 8) {
+      const hashedPassword = await hashPassword(password.trim());
+      
+      const existingAccounts: any[] = await prisma.$queryRawUnsafe(
+        `SELECT "id" FROM "account" WHERE "userId" = $1 AND "providerId" = 'credential' LIMIT 1`,
+        userId
+      );
+
+      if (existingAccounts.length === 0) {
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "account" ("id", "accountId", "providerId", "userId", "password", "createdAt", "updatedAt")
+           VALUES (gen_random_uuid(), $1, 'credential', $1, $2, NOW(), NOW())`,
+          userId,
+          hashedPassword
+        );
+      } else {
+        await prisma.$executeRawUnsafe(
+          `UPDATE "account" 
+           SET "password" = $1, "updatedAt" = NOW() 
+           WHERE "userId" = $2 AND "providerId" = 'credential'`,
+          hashedPassword,
+          userId
+        );
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Onboarding profile saved successfully.',
@@ -139,13 +176,36 @@ export async function GET(req: NextRequest) {
     const users: any[] = await prisma.$queryRawUnsafe(
       `SELECT "id", "name", "firstName", "lastName", "username", "stateOfOrigin", "primaryLanguage", "isOnboarded", "emailVerified", "role" 
        FROM "user" 
-       WHERE "id" = $1 
+       WHERE "id" = $1 OR LOWER("email") = LOWER($2)
        LIMIT 1`,
-      sessionData.user.id
+      sessionData.user.id,
+      sessionData.user.email || ''
     );
 
     const user = users[0] || null;
-    return NextResponse.json({ user });
+
+    if (user?.role === 'blacklisted') {
+      return NextResponse.json({ error: 'This account has been deactivated and blacklisted by administration.' }, { status: 403 });
+    }
+
+    // Check if user has an existing credential password or Google OAuth provider
+    const accounts: any[] = await prisma.$queryRawUnsafe(
+      `SELECT "providerId", "password" FROM "account" WHERE "userId" = $1`,
+      sessionData.user.id
+    );
+
+    const hasCredentialAccount = accounts.some((acc: any) => acc.providerId === 'credential' && !!acc.password);
+    const hasGoogleAccount = accounts.some((acc: any) => acc.providerId === 'google');
+    const isGoogleImage = typeof sessionData.user.image === 'string' && sessionData.user.image.includes('googleusercontent.com');
+
+    const isGoogleUser = hasGoogleAccount || isGoogleImage;
+    const hasPassword = !isGoogleUser || hasCredentialAccount;
+
+    return NextResponse.json({ 
+      user,
+      hasPassword,
+      isGoogleUser
+    });
   } catch (error: any) {
     console.error('[GET ONBOARDING ERROR]:', error);
     return NextResponse.json({ error: 'Failed to fetch onboarding status' }, { status: 500 });

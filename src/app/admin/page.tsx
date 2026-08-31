@@ -24,6 +24,12 @@ import {
   ChevronRight,
   Sparkles,
   AlertTriangle,
+  ShieldAlert,
+  UserX,
+  UserCheck,
+  Ban,
+  Clock,
+  RotateCcw,
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -63,6 +69,7 @@ export default function SuperAdminDashboard() {
   // Re-index Algolia state
   const [isReindexing, setIsReindexing] = useState(false);
   const [reindexMessage, setReindexMessage] = useState<string | null>(null);
+  const [isRefreshingData, setIsRefreshingData] = useState(false);
 
   // Fetch initial stats & verify admin permission
   const fetchStats = async () => {
@@ -93,6 +100,26 @@ export default function SuperAdminDashboard() {
       }
     }
   }, [session, sessionPending, router]);
+
+  useEffect(() => {
+    // Read initial ?tab= query parameter from URL
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam && ['overview', 'words', 'users', 'search', 'system'].includes(tabParam)) {
+        setActiveTab(tabParam as any);
+      }
+    }
+  }, []);
+
+  const handleTabChange = (tabId: 'overview' | 'words' | 'users' | 'search' | 'system') => {
+    setActiveTab(tabId);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tabId);
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
 
   // Fetch words with pagination/query
   const fetchWords = async (page = 1, q = '') => {
@@ -133,7 +160,18 @@ export default function SuperAdminDashboard() {
   useEffect(() => {
     if (activeTab === 'words') fetchWords(wordsPage, wordsQuery);
     if (activeTab === 'users') fetchUsers(usersPage, usersQuery);
+    if (activeTab === 'overview') fetchStats();
   }, [activeTab]);
+
+  const handleRefreshAll = async () => {
+    setIsRefreshingData(true);
+    await Promise.all([
+      fetchStats(),
+      fetchWords(wordsPage, wordsQuery),
+      fetchUsers(usersPage, usersQuery),
+    ]);
+    setIsRefreshingData(false);
+  };
 
   // Delete word action
   const handleDeleteWord = async (id: string, term: string) => {
@@ -195,6 +233,53 @@ export default function SuperAdminDashboard() {
     } finally {
       setIsSavingWord(false);
     }
+  };
+
+  // Blacklist / Deactivate user action (Soft Delete)
+  const handleDeleteUser = async (userId: string, userName: string, userEmail: string) => {
+    if (session?.user?.id === userId) {
+      alert('You cannot blacklist your own active admin account.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to blacklist and deactivate user "${userName}" (${userEmail})?\n\n• All active sessions on their devices will be terminated immediately.\n• This email will be blocked from creating a new account or signing in.\n• Their historical definitions and profile data will remain preserved in the database.\n• You can restore this account at any time.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/users?id=${userId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        setUsersList((prev) => prev.map((u) => (u.id === userId ? { ...u, role: 'blacklisted', isOnboarded: false } : u)));
+        fetchStats();
+      } else {
+        alert(data.error || 'Failed to blacklist user');
+      }
+    } catch (e) {
+      alert('Error blacklisting user');
+    }
+  };
+
+  // Restore blacklisted user action
+  const handleRestoreUser = async (userId: string, userName: string, userEmail: string) => {
+    if (!confirm(`Restore user "${userName}" (${userEmail}) from the blacklist?\n\n• The user will be able to sign in afresh.\n• Their previous profile data will be preserved.\n• They will be routed to onboarding where they can review or update their information.`)) {
+      return;
+    }
+
+    await handleUpdateUser(userId, { role: 'user', isOnboarded: false });
+  };
+
+  // Toggle user ban status
+  const handleToggleBanUser = async (userId: string, currentRole: string, userName: string) => {
+    const isCurrentlyBanned = currentRole === 'banned';
+    const newRole = isCurrentlyBanned ? 'user' : 'banned';
+    const promptMsg = isCurrentlyBanned 
+      ? `Are you sure you want to unban "${userName}" and restore their contribution access?`
+      : `Are you sure you want to ban "${userName}" from contributing and voting?`;
+
+    if (!confirm(promptMsg)) return;
+
+    await handleUpdateUser(userId, { role: newRole });
   };
 
   // Update user role, verified status, or reputation
@@ -301,6 +386,18 @@ export default function SuperAdminDashboard() {
           {/* Quick Actions & Navigation */}
           <div className="flex items-center gap-2">
             <Button
+              onClick={handleRefreshAll}
+              disabled={isRefreshingData}
+              variant="outline"
+              size="sm"
+              className="rounded-full border-white/20 hover:border-primary/40 text-foreground hover:bg-white/5 text-xs font-bold uppercase tracking-wider h-9 px-4 gap-2 shadow-sm"
+              title="Refresh all admin data and metrics"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingData ? 'animate-spin text-primary' : 'text-muted-foreground'}`} />
+              {isRefreshingData ? 'Refreshing...' : 'Refresh Data'}
+            </Button>
+
+            <Button
               onClick={handleReindexAlgolia}
               disabled={isReindexing}
               variant="outline"
@@ -324,26 +421,31 @@ export default function SuperAdminDashboard() {
         {/* Tab Navigation */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex overflow-x-auto gap-2 pt-2 border-t border-white/5 no-scrollbar">
           {[
-            { id: 'overview', label: 'Overview & Metrics', icon: Activity },
-            { id: 'words', label: `Words & Content (${statsData?.metrics.totalWords || 0})`, icon: BookOpen },
-            { id: 'users', label: `Users & Roles (${statsData?.metrics.totalUsers || 0})`, icon: Users },
-            { id: 'search', label: 'Search & Maintenance', icon: Database },
-            { id: 'system', label: 'System & Integrations', icon: Sliders },
+            { id: 'overview', label: 'Overview & Metrics', icon: Activity, extra: null },
+            { id: 'words', label: `Words & Content (${statsData?.metrics.totalWords || 0})`, icon: BookOpen, extra: null },
+            { id: 'users', label: `Users & Roles: Ban / Delete (${statsData?.metrics.totalUsers || 0})`, icon: Users, extra: 'MODERATION' },
+            { id: 'search', label: 'Search & Maintenance', icon: Database, extra: null },
+            { id: 'system', label: 'System & Integrations', icon: Sliders, extra: null },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => handleTabChange(tab.id as any)}
                 className={`flex items-center gap-2 px-4 py-3 border-b-2 text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all ${
                   isActive
-                    ? 'border-primary text-primary bg-primary/5'
+                    ? 'border-primary text-primary bg-primary/10 shadow-sm'
                     : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-white/5'
                 }`}
               >
                 <Icon className="w-4 h-4" />
-                {tab.label}
+                <span>{tab.label}</span>
+                {tab.extra && (
+                  <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-destructive/20 text-destructive border border-destructive/30">
+                    {tab.extra}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -421,8 +523,11 @@ export default function SuperAdminDashboard() {
                   <h3 className="text-sm font-black uppercase tracking-widest text-foreground flex items-center gap-2">
                     <Users className="w-4 h-4 text-primary" /> Recent Users
                   </h3>
-                  <button onClick={() => setActiveTab('users')} className="text-xs font-bold text-primary hover:underline uppercase">
-                    Manage Users
+                  <button 
+                    onClick={() => setActiveTab('users')} 
+                    className="text-xs font-black text-primary hover:underline uppercase bg-primary/10 px-3 py-1 rounded-full border border-primary/20 hover:bg-primary/20 transition-all"
+                  >
+                    Manage All Users & Roles →
                   </button>
                 </div>
                 <div className="divide-y divide-white/5 space-y-2">
@@ -431,20 +536,49 @@ export default function SuperAdminDashboard() {
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-sm text-foreground">{u.name}</span>
+                          {u.role === 'banned' ? (
+                            <span className="text-[9px] font-black uppercase tracking-wider bg-destructive/20 text-destructive border border-destructive/30 px-1.5 py-0.5 rounded flex items-center gap-1">
+                              <ShieldAlert className="w-2.5 h-2.5" /> Banned
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-black uppercase tracking-wider bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                              {u.role || 'user'}
+                            </span>
+                          )}
                           {u.isVerified && (
                             <span className="text-[9px] font-black uppercase tracking-wider bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded">
                               Verified
                             </span>
                           )}
-                          <span className="text-[9px] font-black uppercase tracking-wider bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                            {u.role || 'user'}
-                          </span>
                         </div>
                         <p className="text-[10px] text-muted-foreground">{u.email}</p>
                       </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-xs font-black text-primary">{u.reputationScore} Rep</div>
-                        <div className="text-[10px] font-bold text-muted-foreground"><span className="text-primary font-black">{u._count.definitions}</span> defs</div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="text-right">
+                          <div className="text-xs font-black text-primary">{u.reputationScore} Rep</div>
+                          <div className="text-[10px] font-bold text-muted-foreground"><span className="text-primary font-black">{u._count.definitions}</span> defs</div>
+                        </div>
+                        <div className="flex items-center gap-1.5 border-l border-white/10 pl-2">
+                          <button
+                            onClick={() => handleToggleBanUser(u.id, u.role, u.name)}
+                            className={`p-1.5 rounded-lg transition-all ${
+                              u.role === 'banned'
+                                ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20'
+                            }`}
+                            title={u.role === 'banned' ? 'Unban User' : 'Ban User from Contributing'}
+                          >
+                            {u.role === 'banned' ? <UserCheck className="w-3 h-3" /> : <Ban className="w-3 h-3" />}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(u.id, u.name, u.email)}
+                            disabled={session?.user?.id === u.id}
+                            className="p-1.5 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive transition-all border border-destructive/20 disabled:opacity-30 disabled:cursor-not-allowed"
+                            title={session?.user?.id === u.id ? 'Cannot delete active session' : 'Delete User'}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -622,13 +756,34 @@ export default function SuperAdminDashboard() {
                 />
               </div>
 
-              <Button
-                onClick={() => fetchUsers(1, usersQuery)}
-                size="sm"
-                className="rounded-xl font-bold uppercase tracking-wider text-xs h-10 px-5"
-              >
-                Search Users
-              </Button>
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                {usersQuery && (
+                  <Button
+                    onClick={() => { setUsersQuery(''); fetchUsers(1, ''); }}
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-xl text-xs font-bold uppercase text-muted-foreground hover:text-foreground h-10 px-3"
+                  >
+                    Clear
+                  </Button>
+                )}
+                <Button
+                  onClick={() => fetchUsers(1, usersQuery)}
+                  size="sm"
+                  className="rounded-xl font-bold uppercase tracking-wider text-xs h-10 px-5"
+                >
+                  Search Users
+                </Button>
+                <Button
+                  onClick={() => fetchUsers(usersPage, usersQuery)}
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl font-bold uppercase tracking-wider text-xs h-10 px-3.5 border-white/10 hover:bg-white/5"
+                  title="Reload users list"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${usersLoading ? 'animate-spin text-primary' : ''}`} />
+                </Button>
+              </div>
             </div>
 
             {/* Users Table */}
@@ -638,6 +793,7 @@ export default function SuperAdminDashboard() {
                   <thead className="bg-white/5 border-b border-white/10 text-[10px] uppercase font-black tracking-widest text-muted-foreground">
                     <tr>
                       <th className="p-4">User</th>
+                      <th className="p-4">Onboarding & Heritage</th>
                       <th className="p-4">Role</th>
                       <th className="p-4">NIN Verified</th>
                       <th className="p-4">Reputation</th>
@@ -648,13 +804,13 @@ export default function SuperAdminDashboard() {
                   <tbody className="divide-y divide-white/5 font-medium">
                     {usersLoading ? (
                       <tr>
-                        <td colSpan={6} className="p-8 text-center text-muted-foreground uppercase tracking-widest font-bold animate-pulse">
+                        <td colSpan={7} className="p-8 text-center text-muted-foreground uppercase tracking-widest font-bold animate-pulse">
                           Loading Users...
                         </td>
                       </tr>
                     ) : usersList.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="p-8 text-center text-muted-foreground uppercase tracking-widest font-bold">
+                        <td colSpan={7} className="p-8 text-center text-muted-foreground uppercase tracking-widest font-bold">
                           No matching users found.
                         </td>
                       </tr>
@@ -667,20 +823,61 @@ export default function SuperAdminDashboard() {
                                 {u.image ? <img src={u.image} alt={u.name} className="w-full h-full object-cover" /> : u.name.charAt(0)}
                               </div>
                               <div>
-                                <div className="font-bold text-sm text-foreground">{u.name}</div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-sm text-foreground">{u.name}</span>
+                                  {u.username && (
+                                    <span className="text-[10px] text-primary font-bold">@{u.username}</span>
+                                  )}
+                                  {u.role === 'banned' && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-destructive/20 text-destructive border border-destructive/30 flex items-center gap-1">
+                                      <ShieldAlert className="w-2.5 h-2.5" /> Banned
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="text-[10px] text-muted-foreground">{u.email}</div>
                               </div>
                             </div>
                           </td>
                           <td className="p-4">
+                            {u.isOnboarded ? (
+                              <div>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase tracking-wider">
+                                  <CheckCircle className="w-2.5 h-2.5" /> Onboarded
+                                </span>
+                                <div className="text-[11px] font-semibold text-foreground/80 mt-1">
+                                  {u.stateOfOrigin || 'Unknown'} · <span className="text-primary font-bold">{u.primaryLanguage || 'Unknown'}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-black uppercase tracking-wider">
+                                  <Clock className="w-2.5 h-2.5" /> Pending Onboarding
+                                </span>
+                                <div className="text-[10px] text-muted-foreground mt-0.5">
+                                  {u.emailVerified ? 'Email Verified' : 'Email Not Verified'}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-4">
                             <select
                               value={u.role || 'user'}
                               onChange={(e) => handleUpdateUser(u.id, { role: e.target.value })}
-                              className="bg-black/40 border border-white/10 rounded-lg px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-foreground focus:ring-1 focus:ring-primary"
+                              className={`border rounded-lg px-2.5 py-1 text-xs font-bold uppercase tracking-wider focus:ring-1 focus:ring-primary ${
+                                u.role === 'blacklisted'
+                                  ? 'bg-destructive/20 border-destructive/40 text-destructive'
+                                  : u.role === 'banned' 
+                                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-500' 
+                                  : 'bg-black/40 border-white/10 text-foreground'
+                              }`}
                             >
                               <option value="user">User</option>
+                              <option value="contributor">Contributor</option>
+                              <option value="elder">Elder</option>
                               <option value="admin">Admin</option>
                               <option value="superadmin">Superadmin</option>
+                              <option value="banned">Banned</option>
+                              <option value="blacklisted">Blacklisted</option>
                             </select>
                           </td>
                           <td className="p-4">
@@ -719,12 +916,49 @@ export default function SuperAdminDashboard() {
                             {u._count.definitions} defs, {u._count.votes} votes
                           </td>
                           <td className="p-4 text-right">
-                            <Link
-                              href={`/profile/${u.id}`}
-                              className="text-xs font-bold text-primary hover:underline uppercase tracking-wider"
-                            >
-                              Profile
-                            </Link>
+                            <div className="flex items-center justify-end gap-2">
+                              <Link
+                                href={`/profile/${u.id}`}
+                                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-foreground transition-all text-xs font-bold uppercase tracking-wider"
+                                title="View Public Profile"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </Link>
+
+                              {u.role === 'blacklisted' ? (
+                                <button
+                                  onClick={() => handleRestoreUser(u.id, u.name, u.email)}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider"
+                                  title="Restore user from blacklist"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span>Restore</span>
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => handleToggleBanUser(u.id, u.role, u.name)}
+                                    className={`p-2 rounded-lg transition-all ${
+                                      u.role === 'banned'
+                                        ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30'
+                                        : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20'
+                                    }`}
+                                    title={u.role === 'banned' ? 'Unban User' : 'Ban User from Contributing'}
+                                  >
+                                    {u.role === 'banned' ? <UserCheck className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleDeleteUser(u.id, u.name, u.email)}
+                                    disabled={session?.user?.id === u.id}
+                                    className="p-2 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive transition-all border border-destructive/20 disabled:opacity-30 disabled:cursor-not-allowed"
+                                    title={session?.user?.id === u.id ? 'Cannot blacklist active session' : 'Blacklist & Deactivate User'}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))

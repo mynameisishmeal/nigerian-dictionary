@@ -6,6 +6,7 @@ import { BackgroundGlow } from "@/components/background-glow";
 import { ThemeProvider } from "@/components/theme-provider";
 import Link from "next/link";
 import NextTopLoader from 'nextjs-toploader';
+import { OnboardingGuard } from '@/components/onboarding-guard';
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -32,9 +33,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           />
           <BackgroundGlow />
           <Navbar />
-          <div className="flex-1">
-            {children}
-          </div>
+          <OnboardingGuard>
+            <div className="flex-1">
+              {children}
+            </div>
+          </OnboardingGuard>
           <footer className="fixed bottom-2 left-0 right-0 w-full z-10 pointer-events-none pb-2">
             <div className="w-full max-w-6xl mx-auto px-4 md:px-6 flex justify-between items-center text-[10px] md:text-xs font-bold tracking-widest uppercase pointer-events-auto drop-shadow-md">
               <p className="hidden sm:block text-muted-foreground font-bold">

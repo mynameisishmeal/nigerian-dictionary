@@ -60,6 +60,17 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (session?.user) {
+      // Verify whether the user has completed onboarding
+      fetch('/api/user/onboarding')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!data?.user || !data.user.isOnboarded) {
+            router.push('/onboarding');
+            return;
+          }
+        })
+        .catch(() => {});
+
       // Fetch user's saved key status
       fetch('/api/user/keys')
         .then(res => res.json())
@@ -71,7 +82,7 @@ export default function DashboardPage() {
       // Fetch user's submissions
       fetchSubmissions();
     }
-  }, [session]);
+  }, [session, router]);
 
   const handleSaveApiKey = async () => {
     setIsSavingKey(true);

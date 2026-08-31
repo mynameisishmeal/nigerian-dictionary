@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
 
     // Ensure user exists in public schema (sync from neon_auth)
     const existingAuthors: any[] = await prisma.$queryRawUnsafe(
-      `SELECT "id", "name", "email", "role", "primaryLanguage" FROM "user" WHERE "id" = $1 LIMIT 1`,
+      `SELECT "id", "name", "email", "role", "primaryLanguage", "emailVerified", "isOnboarded" FROM "user" WHERE "id" = $1 LIMIT 1`,
       sessionData.user.id
     );
 
@@ -121,8 +121,8 @@ export async function POST(req: NextRequest) {
 
     if (!authorUser) {
       await prisma.$executeRawUnsafe(
-        `INSERT INTO "user" ("id", "name", "email", "emailVerified", "image", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        `INSERT INTO "user" ("id", "name", "email", "emailVerified", "isOnboarded", "image", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, false, $5, NOW(), NOW())
          ON CONFLICT ("id") DO NOTHING`,
         sessionData.user.id,
         sessionData.user.name || 'Anonymous',
@@ -136,7 +136,34 @@ export async function POST(req: NextRequest) {
         email: sessionData.user.email || '',
         role: 'user',
         primaryLanguage: null,
+        emailVerified: !!sessionData.user.emailVerified,
+        isOnboarded: false,
       };
+    }
+
+    // STRICT CHECK 1: Email verification required before contributing
+    const isEmailVerified = !!sessionData.user.emailVerified || !!authorUser?.emailVerified;
+    if (!isEmailVerified) {
+      return NextResponse.json(
+        { error: 'Email verification is required before submitting contributions. Please verify your email first.' },
+        { status: 403 }
+      );
+    }
+
+    // STRICT CHECK 2: Heritage onboarding required before contributing
+    if (!authorUser?.isOnboarded) {
+      return NextResponse.json(
+        { error: 'Heritage onboarding is required before submitting contributions. Please complete onboarding first.' },
+        { status: 403 }
+      );
+    }
+
+    // STRICT CHECK 3: Check if user is banned from contributing
+    if (authorUser?.role === 'banned') {
+      return NextResponse.json(
+        { error: 'Your account has been banned from submitting contributions. Please contact moderation.' },
+        { status: 403 }
+      );
     }
 
     // Heritage Language Protection & Anti-Spam Check

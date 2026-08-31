@@ -10,22 +10,20 @@ export async function GET() {
 
   try {
     const [
-      totalWords,
-      totalDefinitions,
-      totalUsers,
-      totalVotes,
-      verifiedUsers,
-      usersWithKeys,
+      countsResult,
       recentDefinitions,
       recentUsers,
       languagesCount,
     ] = await Promise.all([
-      prisma.word.count(),
-      prisma.definition.count(),
-      prisma.user.count(),
-      prisma.vote.count(),
-      prisma.user.count({ where: { isVerified: true } }),
-      prisma.user.count({ where: { encryptedOpenRouterKey: { not: null } } }),
+      prisma.$queryRaw<any[]>`
+        SELECT
+          (SELECT COUNT(*) FROM "word")::int as "totalWords",
+          (SELECT COUNT(*) FROM "definition")::int as "totalDefinitions",
+          (SELECT COUNT(*) FROM "user")::int as "totalUsers",
+          (SELECT COUNT(*) FROM "vote")::int as "totalVotes",
+          (SELECT COUNT(*) FROM "user" WHERE "isVerified" = true)::int as "verifiedUsers",
+          (SELECT COUNT(*) FROM "user" WHERE "encryptedOpenRouterKey" IS NOT NULL)::int as "usersWithKeys"
+      `,
       prisma.definition.findMany({
         take: 10,
         orderBy: { createdAt: 'desc' },
@@ -53,6 +51,14 @@ export async function GET() {
         _count: { id: true },
       }),
     ]);
+
+    const counts = countsResult[0] || {};
+    const totalWords = Number(counts.totalWords || 0);
+    const totalDefinitions = Number(counts.totalDefinitions || 0);
+    const totalUsers = Number(counts.totalUsers || 0);
+    const totalVotes = Number(counts.totalVotes || 0);
+    const verifiedUsers = Number(counts.verifiedUsers || 0);
+    const usersWithKeys = Number(counts.usersWithKeys || 0);
 
     const systemStatus = {
       database: 'Connected',

@@ -33,10 +33,29 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // 1. Mark user as verified in database
-    await prisma.user.updateMany({
+    // Check if account is blacklisted
+    const existingUser = await prisma.user.findUnique({
       where: { email: cleanEmail },
-      data: { emailVerified: true },
+      select: { role: true },
+    });
+
+    if (existingUser?.role === 'blacklisted') {
+      return NextResponse.json({
+        error: 'This account has been deactivated and blacklisted by administration. Please contact moderation.'
+      }, { status: 403 });
+    }
+
+    // 1. Mark user as verified in database (upsert if record was missing)
+    await prisma.user.upsert({
+       where: { email: cleanEmail },
+       update: { emailVerified: true },
+       create: {
+         email: cleanEmail,
+         name: cleanEmail.split('@')[0],
+         emailVerified: true,
+         isOnboarded: false,
+         role: 'user',
+       },
     });
 
     // 2. STRICT SINGLE-USE CONSUMPTION: Delete token from verification table

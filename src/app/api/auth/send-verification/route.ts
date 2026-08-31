@@ -13,17 +13,37 @@ export async function POST(req: NextRequest) {
 
     const cleanEmail = email.toLowerCase().trim();
 
-    // Find or locate user record
-    const user = await prisma.user.findUnique({
+    // Find or create pending user record in PostgreSQL
+    let user = await prisma.user.findUnique({
       where: { email: cleanEmail },
-      select: { id: true, name: true, email: true, emailVerified: true },
+      select: { id: true, name: true, email: true, emailVerified: true, isOnboarded: true, role: true },
     });
 
-    if (user && user.emailVerified) {
+    // Check if email has been blacklisted / deactivated by admin
+    if (user?.role === 'blacklisted') {
+      return NextResponse.json({
+        error: 'This email address has been deactivated and blacklisted by administration. Please contact moderation.'
+      }, { status: 403 });
+    }
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email: cleanEmail,
+          name: cleanEmail.split('@')[0],
+          emailVerified: false,
+          isOnboarded: false,
+          role: 'user',
+        },
+        select: { id: true, name: true, email: true, emailVerified: true, isOnboarded: true },
+      });
+    }
+
+    if (user && user.emailVerified && user.isOnboarded) {
       return NextResponse.json({ 
         success: true, 
         alreadyVerified: true, 
-        message: 'This email is already verified. You can log in directly.' 
+        message: 'This email is already verified and onboarded. You can log in directly.' 
       });
     }
 

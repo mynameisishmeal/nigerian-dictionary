@@ -14,6 +14,7 @@ import {
   HelpCircle,
   CheckCircle,
   AlertCircle,
+  AlertTriangle,
   Globe,
   Quote,
   Flame,
@@ -22,6 +23,7 @@ import {
   RotateCcw,
   Save,
   ShieldCheck,
+  ShieldAlert,
   LogIn,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -107,7 +109,19 @@ export default function ContributePage() {
     }
   }, [session?.user?.id]);
 
-  const isPrivileged = userProfile?.role === 'contributor' || userProfile?.role === 'elder' || userProfile?.role === 'admin' || userProfile?.role === 'superadmin';
+  const isSuperAdmin = userProfile?.role === 'superadmin';
+
+  const isPrivileged =
+    userProfile?.role === 'contributor' ||
+    userProfile?.role === 'elder' ||
+    userProfile?.role === 'admin' ||
+    isSuperAdmin;
+
+  const isEmailVerified = !!(session?.user?.emailVerified || userProfile?.emailVerified);
+  const isOnboarded = !!userProfile?.isOnboarded;
+  const isBanned = userProfile?.role === 'banned' || userProfile?.role === 'blacklisted';
+  const canSubmit = isEmailVerified && isOnboarded && !isBanned;
+
   const permittedLanguages = useMemo(() => {
     if (isPrivileged || !userProfile?.primaryLanguage) {
       return POPULAR_LANGUAGES;
@@ -311,12 +325,32 @@ export default function ContributePage() {
 
       // Dynamically replace definitions with new senses for this specific word
       if (Array.isArray(data.senses) && data.senses.length > 0) {
-        const generatedDefs: DefinitionDraft[] = data.senses.map((sense: any, i: number) => ({
-          id: `ai-def-${i}-${Date.now()}`,
-          dialect: sense.dialect || 'Nigerian Pidgin',
-          meaning: sense.meaning || '',
-          examples: Array.isArray(sense.examples) && sense.examples.length > 0 ? sense.examples : [''],
-        }));
+        const generatedDefs: DefinitionDraft[] = data.senses.map((sense: any, i: number) => {
+          let assignedDialect = sense.dialect || 'Nigerian Pidgin';
+          let customDialect: string | undefined = undefined;
+
+          if (!isPrivileged) {
+            const isAllowed = permittedLanguages.some(
+              (p) => p.toLowerCase() === assignedDialect.toLowerCase()
+            );
+            if (!isAllowed) {
+              assignedDialect = userProfile?.primaryLanguage || 'Nigerian Pidgin';
+            }
+          } else {
+            if (!permittedLanguages.includes(assignedDialect)) {
+              customDialect = assignedDialect;
+              assignedDialect = 'Other';
+            }
+          }
+
+          return {
+            id: `ai-def-${i}-${Date.now()}`,
+            dialect: assignedDialect,
+            customDialect,
+            meaning: sense.meaning || '',
+            examples: Array.isArray(sense.examples) && sense.examples.length > 0 ? sense.examples : [''],
+          };
+        });
         setDefinitions(generatedDefs);
 
         // Auto-populate all dialectal orthographic variants into aliases
@@ -360,8 +394,24 @@ export default function ContributePage() {
   // Submit form
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!session) {
+
+    if (isBanned) {
+      setError('Your account has been banned from submitting contributions.');
+      return;
+    }
+
+    if (!session?.user) {
       setError('Please log in to submit dictionary contributions.');
+      return;
+    }
+
+    if (!isEmailVerified) {
+      setError('Email verification is required before submitting contributions. Please verify your email.');
+      return;
+    }
+
+    if (!isOnboarded) {
+      setError('Heritage onboarding is required before submitting contributions. Please complete onboarding.');
       return;
     }
 
@@ -646,8 +696,66 @@ export default function ContributePage() {
                   </Button>
                 </div>
 
-                {/* Heritage Dialect Protection Banner */}
-                {userProfile?.primaryLanguage && !isPrivileged && (
+                {/* Banned User Restriction Banner */}
+                {isBanned && (
+                  <div className="p-5 rounded-2xl bg-destructive/15 border border-destructive/30 flex items-start gap-3.5 shadow-lg animate-in fade-in">
+                    <ShieldAlert className="w-6 h-6 text-destructive shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-black uppercase tracking-wider text-destructive">
+                        Account Restricted: Banned From Contributing
+                      </h4>
+                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed font-medium">
+                        Your account has been restricted by an administrator from submitting new words and definitions. Please contact moderation if you believe this is an error.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Email Unverified Warning Banner */}
+                {!isEmailVerified && session?.user && (
+                  <div className="p-4 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-between gap-4 shadow-inner">
+                    <div className="flex items-center gap-3">
+                      <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+                      <div>
+                        <span className="text-xs font-black text-amber-600 dark:text-amber-400 uppercase tracking-wide block">
+                          Email Verification Required
+                        </span>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          You must verify your email address before publishing words and definitions to the dictionary.
+                        </p>
+                      </div>
+                    </div>
+                    <Link href={`/verify-email?email=${encodeURIComponent(session.user.email || '')}`}>
+                      <Button size="sm" className="rounded-full bg-amber-500 text-black font-black text-xs shrink-0 hover:scale-105 transition-transform">
+                        Verify Email
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+
+                {/* Prompt Un-onboarded Users */}
+                {session?.user && !isOnboarded && isEmailVerified && (
+                  <div className="p-4 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-between gap-4 shadow-inner">
+                    <div className="flex items-center gap-3">
+                      <ShieldCheck className="w-5 h-5 text-primary shrink-0" />
+                      <div>
+                        <span className="text-xs font-black text-primary uppercase tracking-wide block">
+                          Complete Heritage Onboarding
+                        </span>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          Designate your native language to unlock verified dialect contributions.
+                        </p>
+                      </div>
+                    </div>
+                    <Link href="/onboarding">
+                      <Button size="sm" className="rounded-full bg-primary text-primary-foreground text-xs font-black shrink-0 hover:scale-105 transition-transform">
+                        Onboard Now
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+
+                {userProfile?.primaryLanguage && !isPrivileged && !isBanned && (
                   <div className="p-4 rounded-2xl bg-primary/10 border border-primary/20 flex items-start gap-3 shadow-inner">
                     <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
                     <div>
@@ -658,25 +766,6 @@ export default function ContributePage() {
                         As a community member, your contributions are focused on your registered language (<strong>{userProfile.primaryLanguage}</strong>), <strong>Nigerian Pidgin</strong>, and <strong>Urban Slang</strong> to guarantee authenticity. Contributors and Elders with 100+ Rep unlock all 500+ Nigerian languages.
                       </p>
                     </div>
-                  </div>
-                )}
-
-                {/* Prompt Un-onboarded Users */}
-                {session?.user && !userProfile?.isOnboarded && (
-                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-4 shadow-inner">
-                    <div>
-                      <span className="text-xs font-black text-amber-600 dark:text-amber-400 uppercase tracking-wide block">
-                        Complete Heritage Onboarding
-                      </span>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        Designate your native language to unlock verified dialect contributions.
-                      </p>
-                    </div>
-                    <Link href="/onboarding">
-                      <Button size="sm" className="rounded-full bg-primary text-primary-foreground text-xs font-black shrink-0 hover:scale-105 transition-transform">
-                        Onboard Now
-                      </Button>
-                    </Link>
                   </div>
                 )}
 
@@ -935,11 +1024,19 @@ export default function ContributePage() {
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 <Button
                   type="submit"
-                  disabled={isSubmitting || successWord !== null}
+                  disabled={isSubmitting || successWord !== null || !canSubmit}
                   className="flex-1 h-16 rounded-2xl bg-primary text-primary-foreground hover:bg-primary/90 font-black uppercase tracking-widest text-sm shadow-2xl transition-all hover:scale-[1.01] active:scale-95 gap-2"
                 >
                   <CheckCircle className="w-5 h-5" />
-                  {isSubmitting ? 'Publishing Entry...' : 'Publish to Nigerian Dictionary'}
+                  {isSubmitting
+                    ? 'Publishing Entry...'
+                    : !isEmailVerified
+                    ? 'Email Verification Required'
+                    : !isOnboarded
+                    ? 'Heritage Onboarding Required'
+                    : isBanned
+                    ? 'Contribution Restricted'
+                    : 'Publish to Nigerian Dictionary'}
                 </Button>
                 
                 <Button

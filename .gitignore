@@ -92,4 +92,10 @@ Thumbs.db
 # 9. Scratch Scripts & Temporary Tests
 scripts/temp-*
 scripts/test-*
+scratch/
 /scratch/
+scratch_*.*
+scratch_*.ts
+scratch_*.js
+scratch_*.mjs
+scratch_*.cjs

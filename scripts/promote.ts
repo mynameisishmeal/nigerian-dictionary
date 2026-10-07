@@ -1,7 +1,13 @@
 import prisma from '@/lib/prisma';
 
 async function main() {
-  const targetEmail = 'rosewelltin@gmail.com'.toLowerCase().trim();
+  const targetEmail = (process.argv[2] || process.env.SUPERADMIN_EMAIL || '').toLowerCase().trim();
+  if (!targetEmail) {
+    console.error('Error: Please provide a target email address.');
+    console.error('Usage: npx tsx scripts/promote.ts <email>');
+    console.error('Or set SUPERADMIN_EMAIL in your environment variables.');
+    process.exit(1);
+  }
   console.log(`Checking user record for: ${targetEmail}`);
 
   let user = await prisma.user.findUnique({
@@ -12,7 +18,7 @@ async function main() {
     console.log(`User ${targetEmail} not found in database. Creating placeholder record...`);
     user = await prisma.user.create({
       data: {
-        name: 'Rosewell Tin',
+        name: targetEmail.split('@')[0],
         email: targetEmail,
         role: 'superadmin',
         isVerified: true,

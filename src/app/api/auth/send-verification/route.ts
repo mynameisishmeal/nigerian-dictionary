@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Verification email dispatched successfully.',
-      devLink: emailResult.method === 'console' ? emailResult.link : undefined,
+      devLink: process.env.NODE_ENV !== 'production' && emailResult.method === 'console' ? emailResult.link : undefined,
     });
   } catch (error: any) {
     console.error('[SEND-VERIFICATION API ERROR]:', error);

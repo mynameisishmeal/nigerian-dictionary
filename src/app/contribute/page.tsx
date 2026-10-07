@@ -84,6 +84,7 @@ export default function ContributePage() {
     primaryLanguage?: string | null;
     isOnboarded?: boolean;
     role?: string | null;
+    emailVerified?: boolean;
   } | null>(null);
 
   // Fetch onboarding profile & primary language

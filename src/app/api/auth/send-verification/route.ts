@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
           isOnboarded: false,
           role: 'user',
         },
-        select: { id: true, name: true, email: true, emailVerified: true, isOnboarded: true },
+        select: { id: true, name: true, email: true, emailVerified: true, isOnboarded: true, role: true },
       });
     }
 
